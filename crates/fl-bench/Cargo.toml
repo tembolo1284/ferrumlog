@@ -1,0 +1,199 @@
+[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }[package]
+name = "fl-bench"
+description = "Load generator for ferrumlog: produce and consume benchmarks with latency percentiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-bench"
+path = "src/main.rs"
+
+[dependencies]
+fl-types = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }

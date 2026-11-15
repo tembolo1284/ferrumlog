@@ -23,12 +23,18 @@ Usage: ./build.sh <command> [args]
   run [args]   Start a node on 127.0.0.1:7001 with its data in ./data.
                Extra args go to fl-server, for example: ./build.sh run --node-id 2
   demo         Start a throwaway node, run a short fl session against it, stop it
+  cluster      Start three nodes on 127.0.0.1:7001 to 7003 that replicate to
+               each other, with their data in ./data/node1 to node3
+  sim [args]   Run the Raft simulator over many seeds, for example:
+               ./build.sh sim --count 2000 --profile harsh
+  bench [args] Run the load generator, for example:
+               ./build.sh bench produce --workers 16 --seconds 10
   docker       Build the container image (tag: ferrumlog:local)
   clean        Remove build output
   help         Show this text
 
 Environment:
-  FERRUMLOG_DATA_DIR   Data directory used by "run" (default ./data)
+  FERRUMLOG_DATA_DIR   Data directory used by "run" and "cluster" (default ./data)
   FERRUMLOG_IMAGE      Image tag used by "docker" (default ferrumlog:local)
   FERRUMLOG_DEMO_PORT  Port used by "demo" (default 17001)
 EOF
@@ -136,6 +142,56 @@ demo() {
     say "demo finished, stopping the node"
 }
 
+cluster() {
+    cargo build --release -p fl-server -p fl-cli
+
+    local peers="1=127.0.0.1:7001,2=127.0.0.1:7002,3=127.0.0.1:7003"
+    local id
+    # Stop every node however this ends. The trap runs after this function
+    # has returned, so the list of process ids cannot be a local.
+    CLUSTER_PIDS=()
+    trap 'kill "${CLUSTER_PIDS[@]}" 2>/dev/null || true; wait' EXIT
+    trap 'exit 130' INT TERM HUP
+
+    for id in 1 2 3; do
+        target/release/fl-server \
+            --node-id "${id}" \
+            --peers "${peers}" \
+            --listen "127.0.0.1:700${id}" \
+            --metrics-listen "127.0.0.1:910${id}" \
+            --data-dir "${DATA_DIR}/node${id}" &
+        CLUSTER_PIDS+=("$!")
+    done
+
+    say "three nodes are starting (Ctrl-C stops them all)"
+    cat <<'EOF'
+In another terminal:
+
+  export FERRUMLOG_ENDPOINTS=127.0.0.1:7001,127.0.0.1:7002,127.0.0.1:7003
+  target/release/fl status
+  target/release/fl create-topic quotes
+  target/release/fl produce quotes hello
+
+To watch a failover, find the leader's process and kill it:
+
+  pgrep -af 'fl-server --node-id'
+  kill <pid of the leader>
+  target/release/fl status
+
+EOF
+    wait
+}
+
+sim() {
+    cargo build --release -p fl-sim
+    target/release/fl-sim "$@"
+}
+
+bench() {
+    cargo build --release -p fl-bench
+    target/release/fl-bench "$@"
+}
+
 docker_image() {
     say "building image ${IMAGE}"
     docker build -f deploy/docker/Dockerfile -t "${IMAGE}" .
@@ -159,6 +215,9 @@ case "${command}" in
     fmt) fmt ;;
     run) run_node "$@" ;;
     demo) demo ;;
+    cluster) cluster ;;
+    sim) sim "$@" ;;
+    bench) bench "$@" ;;
     docker) docker_image ;;
     clean) clean ;;
     help | -h | --help) usage ;;

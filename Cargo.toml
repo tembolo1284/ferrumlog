@@ -15,20 +15,24 @@ fl-proto = { path = "crates/fl-proto" }
 fl-broker = { path = "crates/fl-broker" }
 fl-server = { path = "crates/fl-server" }
 fl-client = { path = "crates/fl-client" }
-
+fl-raft = { path = "crates/fl-raft" }
+fl-sim = { path = "crates/fl-sim" }
+fl-net = { path = "crates/fl-net" }
+fl-bench = { path = "crates/fl-bench" }
+fl-tier = { path = "crates/fl-tier" }
 
 tonic = "0.14"
 tonic-prost = "0.14"
 prost = "0.14"
 tonic-prost-build = "0.14"
 protoc-bin-vendored = "3"
+
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "time", "signal"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
