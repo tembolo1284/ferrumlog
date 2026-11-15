@@ -99,6 +99,17 @@ impl Standalone {
         self.state.fetch(&self.log, topic, offset, limits)
     }
 
+    /// Flushes appended entries to disk.
+    ///
+    /// Only needed when the log was opened with
+    /// [`fl_storage::SyncPolicy::Manual`]. A caller that batches several
+    /// writes uses that policy and calls this once per batch, which is how
+    /// group commit works.
+    pub fn sync(&mut self) -> Result<()> {
+        Ok(self.log.sync()?)
+    }
+
+
     /// Appends one command to the log and applies it.
     fn commit(&mut self, command: Command) -> Result<Applied> {
         command.validate()?;
