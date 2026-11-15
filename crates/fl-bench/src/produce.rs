@@ -141,7 +141,10 @@ impl Worker {
             if let Some(due) = due {
                 tokio::time::sleep_until(due).await;
             }
-            if self.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            if self
+                .deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            {
                 break;
             }
             if !take_one(&self.budget) {

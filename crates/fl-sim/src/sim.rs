@@ -534,4 +534,187 @@ impl Sim {
     /// Does what a real driver does with a `Ready`, in the required order:
     /// persist, then send, then apply. Also where crashes in the middle of
     /// a step happen, and where the checker gets to look.
-    fn handle_ready(&mut self, id: NodeId) ->
+    fn handle_ready(&mut self, id: NodeId) -> Result<(), Violation> {
+        let bug = self.config.bug;
+        let slot = self.slots.get_mut(&id).expect("known node");
+        let Some(node) = slot.node.as_mut() else {
+            return Ok(());
+        };
+        let ready = node.ready().unwrap_or_else(|never| match never {});
+
+        if !ready.is_idle() && slot.doom == Some(Doom::BeforePersist) {
+            self.crash(id, "before persisting");
+            return Ok(());
+        }
+
+        // 1. The term and vote.
+        if let Some(hard) = ready.hard_state {
+            if bug != Some(Bug::SkipHardStateWrite) {
+                if hard.term < slot.hard.term {
+                    return Err(Violation::new(
+                        ViolationKind::TermWentBackwards,
+                        format!("{id} went from {} back to {}", slot.hard.term, hard.term),
+                    ));
+                }
+                slot.hard = hard;
+            }
+        }
+        // 2. The log.
+        if ready.must_sync && bug != Some(Bug::SkipLogSync) {
+            node.log_mut().sync();
+        }
+
+        if !ready.is_idle() && slot.doom == Some(Doom::BeforeSend) {
+            self.crash(id, "before sending");
+            return Ok(());
+        }
+
+        // The checker looks at the node now that its state is durable.
+        let term = node.term();
+        self.stats.max_term = self.stats.max_term.max(term.get());
+        if node.is_leader() {
+            let newly_seen = self.checker.terms_with_a_leader();
+            self.checker.observe_leader(term, id)?;
+            if self.checker.terms_with_a_leader() > newly_seen {
+                self.checker
+                    .check_leader_log(id, term, node.log().working())?;
+            }
+        }
+
+        // 3. Apply what is committed.
+        while slot.applied < ready.commit_index {
+            let next = slot.applied.next();
+            let Some(entry) = node.log().working().get(next) else {
+                return Err(Violation::new(
+                    ViolationKind::CommittedEntryChanged,
+                    format!(
+                        "{id} has commit index {} but no entry at {next}",
+                        ready.commit_index
+                    ),
+                ));
+            };
+            self.checker.observe_apply(id, term, entry)?;
+            slot.applied = next;
+        }
+
+        // A proposal is acknowledged to its client once the leader that
+        // accepted it, still leading the same term, sees it committed.
+        let is_leader = node.is_leader();
+        let mut still_pending = Vec::new();
+        for pending in slot.pending.drain(..) {
+            if !is_leader || pending.id.term != term {
+                // Leadership was lost. The outcome is unknown to this
+                // node, and a real client would have to ask the new
+                // leader.
+                continue;
+            }
+            if pending.id.index <= ready.commit_index {
+                self.checker.check_ack(pending.id, pending.number)?;
+                self.stats.acknowledged += 1;
+            } else {
+                still_pending.push(pending);
+            }
+        }
+        slot.pending = still_pending;
+
+        // 4. Send.
+        for message in ready.messages {
+            self.post(message);
+        }
+        Ok(())
+    }
+
+    // ---- whole-cluster checks --------------------------------------------
+
+    fn check_all_logs(&self) -> Result<(), Violation> {
+        let mut logs: Vec<(NodeId, &MemLog)> = Vec::new();
+        for (id, slot) in &self.slots {
+            match &slot.node {
+                Some(node) => {
+                    logs.push((*id, node.log().working()));
+                    if node.is_leader() {
+                        self.checker
+                            .check_leader_log(*id, node.term(), node.log().working())?;
+                    }
+                }
+                None => logs.push((*id, &slot.disk)),
+            }
+        }
+        self.checker.check_logs(&logs)
+    }
+
+    // ---- reporting -------------------------------------------------------
+
+    fn note(&mut self, event: impl FnOnce() -> String) {
+        if !self.config.trace {
+            return;
+        }
+        if self.trace.len() == TRACE_LEN {
+            self.trace.pop_front();
+        }
+        let line = format!("{:>6} {}", self.now, event());
+        self.trace.push_back(line);
+    }
+
+    fn stamp(&self, mut violation: Violation) -> Violation {
+        violation.seed = self.config.seed;
+        violation.tick = self.now;
+        violation.trace = self.trace.iter().cloned().collect();
+        violation
+    }
+
+    fn report(&self) -> Report {
+        let mut report = Report {
+            seed: self.config.seed,
+            ticks: self.now,
+            messages_sent: self.stats.sent,
+            messages_delivered: self.stats.delivered,
+            messages_lost: self.stats.lost,
+            messages_duplicated: self.stats.duplicated,
+            crashes: self.stats.crashes,
+            partitions: self.stats.partitions,
+            leaders_elected: self.checker.terms_with_a_leader() as u64,
+            max_term: self.stats.max_term,
+            proposals: self.stats.proposals,
+            accepted: self.stats.accepted,
+            acknowledged: self.stats.acknowledged,
+            committed: self.checker.committed().len() as u64,
+            fingerprint: 0,
+        };
+        report.fingerprint = self.fingerprint(&report);
+        report
+    }
+
+    /// FNV-1a over the committed log and the counters.
+    fn fingerprint(&self, report: &Report) -> u64 {
+        let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
+        let mut mix = |value: u64| {
+            for byte in value.to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01B3);
+            }
+        };
+        for entry in self.checker.committed() {
+            mix(entry.term().get());
+            mix(entry.index().get());
+            mix(crate::checker::command_number(&entry.command).map_or(u64::MAX, |n| n));
+        }
+        for counter in [
+            report.ticks,
+            report.messages_sent,
+            report.messages_delivered,
+            report.messages_lost,
+            report.messages_duplicated,
+            report.crashes,
+            report.partitions,
+            report.leaders_elected,
+            report.max_term,
+            report.proposals,
+            report.accepted,
+            report.acknowledged,
+        ] {
+            mix(counter);
+        }
+        hash
+    }
+}

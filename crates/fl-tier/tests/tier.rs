@@ -219,7 +219,9 @@ async fn one_archive_belongs_to_one_node() {
     append(other.path(), 1, 30);
     archive(data.path(), n(1), i(30), &store).await.unwrap();
 
-    let error = archive(other.path(), n(2), i(30), &store).await.unwrap_err();
+    let error = archive(other.path(), n(2), i(30), &store)
+        .await
+        .unwrap_err();
     assert!(
         matches!(error, Error::WrongNode { archived, local } if archived == n(1) && local == n(2)),
         "{error}"
@@ -321,7 +323,11 @@ async fn a_node_is_archived_while_running_and_restored_elsewhere() {
     let report = archive(data.path(), status.node_id, status.commit_index, &store)
         .await
         .unwrap();
-    assert!(report.uploaded.len() >= 3, "{} segments", report.uploaded.len());
+    assert!(
+        report.uploaded.len() >= 3,
+        "{} segments",
+        report.uploaded.len()
+    );
     assert_eq!(report.held_back, 0);
     verify(&store).await.unwrap();
     server.stop().await.unwrap();
@@ -349,7 +355,10 @@ async fn a_node_is_archived_while_running_and_restored_elsewhere() {
         .await
         .unwrap();
     let expected = format!("quote-{:04}-", recovered - 1);
-    assert!(last.records[0].record.value.starts_with(expected.as_bytes()));
+    assert!(last.records[0]
+        .record
+        .value
+        .starts_with(expected.as_bytes()));
 
     // And it takes new writes, continuing the offsets.
     let produced = client

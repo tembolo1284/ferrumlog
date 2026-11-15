@@ -208,8 +208,14 @@ mod tests {
             Err(Error::Gap { .. })
         ));
         manifest.push(segment(1, 9)).unwrap();
-        assert!(matches!(manifest.push(segment(11, 20)), Err(Error::Gap { .. })));
-        assert!(matches!(manifest.push(segment(9, 20)), Err(Error::Gap { .. })));
+        assert!(matches!(
+            manifest.push(segment(11, 20)),
+            Err(Error::Gap { .. })
+        ));
+        assert!(matches!(
+            manifest.push(segment(9, 20)),
+            Err(Error::Gap { .. })
+        ));
         manifest.push(segment(10, 20)).unwrap();
     }
 

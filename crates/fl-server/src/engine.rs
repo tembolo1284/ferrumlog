@@ -919,10 +919,14 @@ mod tests {
         // back before `open` returns.
         let config = Config::parse_from(["fl-server", "--data-dir", dir.to_str().unwrap()]);
         let peers = Arc::new(PeerMap::single(NodeId::new(1), "unused"));
-        let (engine, handle) =
-            Engine::open(&config, peers, Arc::new(Metrics::default()), Shutdown::new())
-                .await
-                .unwrap();
+        let (engine, handle) = Engine::open(
+            &config,
+            peers,
+            Arc::new(Metrics::default()),
+            Shutdown::new(),
+        )
+        .await
+        .unwrap();
         let snapshot = engine.snapshot().await.unwrap();
         assert_eq!(snapshot.term, Term::new(2));
         assert_eq!(snapshot.applied, LogIndex::new(4));
@@ -940,8 +944,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let config = Config::parse_from(["fl-server", "--data-dir", dir.to_str().unwrap()]);
         let peers = Arc::new(PeerMap::parse(["2=a:1", "3=b:1"]).unwrap());
-        let result =
-            Engine::open(&config, peers, Arc::new(Metrics::default()), Shutdown::new()).await;
+        let result = Engine::open(
+            &config,
+            peers,
+            Arc::new(Metrics::default()),
+            Shutdown::new(),
+        )
+        .await;
         let error = result.err().expect("node 1 is not in the list").to_string();
         assert!(error.contains("not in the voter set"), "{error}");
         let _ = std::fs::remove_dir_all(&dir);

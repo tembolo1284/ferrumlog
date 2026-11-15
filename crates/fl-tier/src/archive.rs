@@ -103,7 +103,7 @@ pub(crate) async fn load_manifest(store: &Store) -> Result<Manifest> {
     let Some(bytes) = store.get(MANIFEST_KEY).await? else {
         return Ok(Manifest::default());
     };
-    let text = String::from_utf8(bytes)
-        .map_err(|_| Error::BadManifest("it is not valid UTF-8".into()))?;
+    let text =
+        String::from_utf8(bytes).map_err(|_| Error::BadManifest("it is not valid UTF-8".into()))?;
     Manifest::decode(&text)
 }

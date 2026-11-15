@@ -54,11 +54,7 @@ impl Summary {
         let latency = &self.latency;
         let mut out = String::new();
         let _ = writeln!(out, "{title}");
-        let _ = writeln!(
-            out,
-            "  elapsed     {:.2} s",
-            self.elapsed.as_secs_f64()
-        );
+        let _ = writeln!(out, "  elapsed     {:.2} s", self.elapsed.as_secs_f64());
         let _ = writeln!(
             out,
             "  requests    {} ok, {} failed, {:.0}/s",

@@ -107,7 +107,11 @@ async fn a_time_limit_stops_the_run() {
     assert!(written.requests > 0);
     assert_eq!(written.records, written.requests);
     assert!(written.elapsed >= Duration::from_millis(400));
-    assert!(written.elapsed < Duration::from_secs(5), "{:?}", written.elapsed);
+    assert!(
+        written.elapsed < Duration::from_secs(5),
+        "{:?}",
+        written.elapsed
+    );
     server.stop().await.unwrap();
 }
 
@@ -125,8 +129,16 @@ async fn a_target_rate_paces_the_requests() {
     let written = produce(options).await.unwrap();
 
     assert_eq!(written.requests, 100);
-    assert!(written.elapsed >= Duration::from_millis(400), "{:?}", written.elapsed);
-    assert!(written.elapsed < Duration::from_secs(5), "{:?}", written.elapsed);
+    assert!(
+        written.elapsed >= Duration::from_millis(400),
+        "{:?}",
+        written.elapsed
+    );
+    assert!(
+        written.elapsed < Duration::from_secs(5),
+        "{:?}",
+        written.elapsed
+    );
     let rate = written.requests_per_second();
     assert!((100.0..=260.0).contains(&rate), "{rate}");
     server.stop().await.unwrap();

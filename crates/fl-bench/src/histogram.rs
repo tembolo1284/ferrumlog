@@ -173,14 +173,22 @@ mod tests {
         let mut previous = 0usize;
         let samples = (0..64u32).flat_map(|bit| {
             let base = 1u64 << bit;
-            [base.saturating_sub(1), base, base + base / 3, base + base / 2]
+            [
+                base.saturating_sub(1),
+                base,
+                base + base / 3,
+                base + base / 2,
+            ]
         });
         for value in samples.chain([u64::MAX]) {
             let bucket = bucket_of(value);
             assert!(bucket < BUCKETS, "{value} is out of range");
             assert!(upper_edge(bucket) >= value, "{value} is above its bucket");
             if bucket > 0 {
-                assert!(upper_edge(bucket - 1) < value, "{value} is in too high a bucket");
+                assert!(
+                    upper_edge(bucket - 1) < value,
+                    "{value} is in too high a bucket"
+                );
             }
             // Larger values never land in lower buckets.
             assert!(bucket >= previous || value < 2);

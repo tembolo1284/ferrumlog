@@ -99,7 +99,10 @@ fn the_disk_log_behaves_like_the_memory_log() {
     disk.sync().unwrap();
 
     // Index zero is asked for as "everything", and is not an error.
-    assert_eq!(disk.entries(LogIndex::ZERO, 9, usize::MAX).unwrap().len(), 5);
+    assert_eq!(
+        disk.entries(LogIndex::ZERO, 9, usize::MAX).unwrap().len(),
+        5
+    );
 }
 
 #[test]
@@ -215,8 +218,14 @@ async fn next(received: &mut mpsc::UnboundedReceiver<Message>) -> Message {
 
 #[tokio::test]
 async fn a_vote_and_an_append_cross_a_real_socket() {
-    let voters = PeerMap::parse(["1=unused", "2=unused"]).unwrap().membership();
-    let follower = Node::new(Config::new(n(2), voters), HardState::default(), MemLog::new());
+    let voters = PeerMap::parse(["1=unused", "2=unused"])
+        .unwrap()
+        .membership();
+    let follower = Node::new(
+        Config::new(n(2), voters),
+        HardState::default(),
+        MemLog::new(),
+    );
     let addr = serve(follower.unwrap()).await;
     let peers = PeerMap::parse(["1=unused".to_owned(), format!("2={addr}")]).unwrap();
     let (transport, mut received) = transport(&peers);
@@ -230,7 +239,10 @@ async fn a_vote_and_an_append_cross_a_real_socket() {
         },
     });
     let reply = next(&mut received).await;
-    assert_eq!((reply.from, reply.to, reply.term), (n(2), n(1), Term::new(1)));
+    assert_eq!(
+        (reply.from, reply.to, reply.term),
+        (n(2), n(1), Term::new(1))
+    );
     assert_eq!(reply.body, Body::RequestVoteResponse { granted: true });
 
     // A large entry, to exercise the raised message size limit.
