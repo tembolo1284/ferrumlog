@@ -109,7 +109,6 @@ impl Standalone {
         Ok(self.log.sync()?)
     }
 
-
     /// Appends one command to the log and applies it.
     fn commit(&mut self, command: Command) -> Result<Applied> {
         command.validate()?;
