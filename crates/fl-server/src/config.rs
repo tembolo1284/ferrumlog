@@ -35,6 +35,21 @@ pub struct Config {
     #[arg(long, env = "FERRUMLOG_ADVERTISE")]
     pub advertise: Option<String>,
 
+    /// Every node in the cluster as id=host:port, separated by commas,
+    /// this node included. Leave it out to run a single node.
+    ///
+    /// The address is each node's gRPC address. Peers use it for Raft and
+    /// clients are redirected to it, so both must be able to reach it.
+    #[arg(long, env = "FERRUMLOG_PEERS", value_delimiter = ',')]
+    pub peers: Vec<String>,
+
+    /// Length of one Raft tick in milliseconds. A leader sends a heartbeat
+    /// every 2 ticks. A follower that hears nothing for 10 to 20 ticks
+    /// starts an election. With the default, a dead leader is replaced in
+    /// about a second.
+    #[arg(long, env = "FERRUMLOG_TICK_MS", default_value_t = 50)]
+    pub tick_ms: u64,
+
     /// Address the HTTP server for /metrics and /healthz listens on.
     #[arg(
         long,
@@ -86,6 +101,23 @@ mod tests {
         assert_eq!(config.segment_bytes, 64 << 20);
         assert_eq!(config.max_commit_batch, 256);
         assert!(!config.unsafe_no_fsync);
+        assert!(config.peers.is_empty());
+        assert_eq!(config.tick_ms, 50);
+    }
+
+    #[test]
+    fn peers_are_split_on_commas() {
+        let config = Config::parse_from([
+            "fl-server",
+            "--node-id",
+            "2",
+            "--peers",
+            "1=a:7001,2=b:7001,3=c:7001",
+            "--tick-ms",
+            "20",
+        ]);
+        assert_eq!(config.peers, ["1=a:7001", "2=b:7001", "3=c:7001"]);
+        assert_eq!(config.tick_ms, 20);
     }
 
     #[test]

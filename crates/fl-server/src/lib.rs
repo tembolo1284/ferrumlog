@@ -1,21 +1,29 @@
 //! The ferrumlog node.
 //!
-//! This crate turns the synchronous broker into a network service:
+//! This crate turns the Raft core and the broker into a network service:
 //!
-//! * a gRPC server for the `Log` and `Admin` services,
-//! * a writer thread that group-commits writes with one fsync per batch,
+//! * a gRPC server for the `Log`, `Admin`, and `Raft` services,
+//! * a Raft thread that replicates writes and group-commits them with one
+//!   fsync per batch,
 //! * an HTTP server for Prometheus metrics and health checks,
 //! * graceful shutdown that finishes queued writes before exiting.
 //!
-//! The node currently runs a single-node [`fl_broker::Standalone`] broker.
-//! Replication is added by putting Raft between the writer and the log. The
-//! services, metrics, and shutdown path stay as they are.
+//! # Single node or cluster
+//!
+//! Every node runs Raft. Started without `--peers`, a node is a cluster of
+//! one: it elects itself at once and commits on its own. Started with
+//! `--peers`, it replicates every write to a majority before answering.
+//! Writes go to the leader. Any other node answers a write with a redirect
+//! that names the leader, which the client library follows. Reads are
+//! served by every node from what it has applied.
 //!
 //! # Security
 //!
-//! There is no TLS and no authentication yet. The defaults bind to
-//! loopback. If you listen on a public interface, restrict who can connect
-//! with a firewall or security group.
+//! There is no TLS and no authentication yet, for clients or between
+//! nodes. The defaults bind to loopback. If you listen on a public
+//! interface, restrict who can connect with a firewall or security group.
+//! In a cluster the same port carries the Raft protocol, so it must be
+//! open to the other members and to nothing else you do not trust.
 
 mod config;
 mod engine;
@@ -27,7 +35,9 @@ mod shutdown;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use fl_proto::{AdminServer, LogServer};
+use fl_net::{PeerMap, RaftService, MAX_MESSAGE_BYTES};
+use fl_proto::{AdminServer, LogServer, RaftServer};
+use fl_types::NodeId;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tonic::transport::server::TcpIncoming;
@@ -71,8 +81,23 @@ impl Server {
         if config.unsafe_no_fsync {
             warn!("fsync is disabled: acknowledged writes can be lost in a crash");
         }
-        let (engine, writer) =
-            Engine::open(&config, Arc::clone(&metrics), shutdown.clone()).await?;
+        let me = NodeId::new(config.node_id);
+        let peers = if config.peers.is_empty() {
+            PeerMap::single(me, config.listen.to_string())
+        } else {
+            PeerMap::parse(&config.peers)?
+        };
+        if !peers.contains(me) {
+            return Err(format!("node id {} is not in --peers", config.node_id).into());
+        }
+        let peers = Arc::new(peers);
+        let (engine, writer) = Engine::open(
+            &config,
+            Arc::clone(&peers),
+            Arc::clone(&metrics),
+            shutdown.clone(),
+        )
+        .await?;
 
         let listener = TcpListener::bind(config.listen).await?;
         let grpc_addr = listener.local_addr()?;
@@ -89,13 +114,18 @@ impl Server {
             engine: engine.clone(),
             node_id: config.node_id,
             advertise: config.advertised_addr(grpc_addr),
+            peers: Arc::clone(&peers),
         };
+        let raft_service = RaftServer::new(RaftService::new(me, engine.raft_sink()))
+            .max_decoding_message_size(MAX_MESSAGE_BYTES)
+            .max_encoding_message_size(MAX_MESSAGE_BYTES);
         let grpc = {
             let shutdown = shutdown.clone();
             tokio::spawn(async move {
                 let result = tonic::transport::Server::builder()
                     .add_service(LogServer::new(log_service))
                     .add_service(AdminServer::new(admin_service))
+                    .add_service(raft_service)
                     .serve_with_incoming_shutdown(incoming, shutdown.wait())
                     .await;
                 // If the server stops for any reason, the node stops.
@@ -126,6 +156,7 @@ impl Server {
 
         info!(
             node_id = config.node_id,
+            members = peers.len(),
             grpc = %grpc_addr,
             metrics = ?metrics_addr,
             data_dir = %config.data_dir.display(),
@@ -171,8 +202,8 @@ impl Server {
     }
 
     /// Waits until shutdown is triggered, then stops in order: the servers
-    /// stop accepting requests and finish the ones in flight, the writer
-    /// commits what is still queued, and the log is closed.
+    /// stop accepting requests and finish the ones in flight, the Raft
+    /// thread handles what is still queued, and the log is closed.
     ///
     /// Returns the error that brought the node down, if there was one.
     pub async fn join(self) -> Result<(), BoxError> {
@@ -191,7 +222,7 @@ impl Server {
         let writer = self.writer;
         let writer = match tokio::task::spawn_blocking(move || writer.join()).await {
             Ok(Ok(result)) => result.map_err(BoxError::from),
-            Ok(Err(_)) => Err(BoxError::from("the writer thread panicked")),
+            Ok(Err(_)) => Err(BoxError::from("the raft thread panicked")),
             Err(e) => Err(BoxError::from(e)),
         };
 

@@ -138,6 +138,13 @@ pub struct Metrics {
     pub log_segments: Gauge,
     /// Number of topics.
     pub topics: Gauge,
+
+    /// This node's current Raft term.
+    pub raft_term: Gauge,
+    /// 1 while this node is the leader, otherwise 0.
+    pub raft_leader: Gauge,
+    /// Highest log index this node knows to be committed.
+    pub commit_index: Gauge,
 }
 
 impl Default for Metrics {
@@ -158,6 +165,9 @@ impl Default for Metrics {
             log_bytes: Gauge::default(),
             log_segments: Gauge::default(),
             topics: Gauge::default(),
+            raft_term: Gauge::default(),
+            raft_leader: Gauge::default(),
+            commit_index: Gauge::default(),
         }
     }
 }
@@ -264,6 +274,25 @@ impl Metrics {
             "ferrumlog_topics",
             "Number of topics.",
             &self.topics,
+        );
+
+        gauge(
+            &mut out,
+            "ferrumlog_raft_term",
+            "This node's current Raft term.",
+            &self.raft_term,
+        );
+        gauge(
+            &mut out,
+            "ferrumlog_raft_leader",
+            "1 while this node is the leader, otherwise 0.",
+            &self.raft_leader,
+        );
+        gauge(
+            &mut out,
+            "ferrumlog_commit_index",
+            "Highest log index known to be committed.",
+            &self.commit_index,
         );
         out
     }
