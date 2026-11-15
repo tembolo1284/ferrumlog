@@ -1,0 +1,56 @@
+// The node-to-node protocol. Only cluster members call this service.
+
+syntax = "proto3";
+
+package ferrumlog.v1;
+
+import "ferrumlog/v1/types.proto";
+
+service Raft {
+  // Sent by a candidate to gather votes.
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+  // Sent by the leader to replicate entries. With no entries it is a
+  // heartbeat.
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+}
+
+message RequestVoteRequest {
+  // The candidate's term.
+  uint64 term = 1;
+  uint64 candidate_id = 2;
+  // Term and index of the candidate's last log entry. A voter grants its
+  // vote only if this is at least as up to date as its own last entry.
+  LogId last_log = 3;
+}
+
+message RequestVoteResponse {
+  // The voter's current term, so a stale candidate can step down.
+  uint64 term = 1;
+  bool vote_granted = 2;
+}
+
+message AppendEntriesRequest {
+  // The leader's term.
+  uint64 term = 1;
+  uint64 leader_id = 2;
+  // Term and index of the entry immediately before `entries`. The follower
+  // rejects the request unless its own log holds this exact entry.
+  LogId prev_log = 3;
+  // Entries to store, in order. Empty for a heartbeat.
+  repeated Entry entries = 4;
+  // Highest index the leader knows to be committed.
+  uint64 leader_commit = 5;
+}
+
+message AppendEntriesResponse {
+  // The follower's current term, so a stale leader can step down.
+  uint64 term = 1;
+  // True if the follower held `prev_log` and stored the entries.
+  bool success = 2;
+  // On success, the index of the last entry known to match the leader.
+  uint64 match_index = 3;
+  // On failure, the index the leader should send from next. It lets the
+  // leader skip back over a whole conflicting term in one round trip
+  // instead of one entry at a time.
+  uint64 conflict_index = 4;
+}

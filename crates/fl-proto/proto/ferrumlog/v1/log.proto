@@ -1,0 +1,112 @@
+// The client-facing API: create topics, produce records, and read them back.
+//
+// Writes must go to the leader. A node that is not the leader fails the call
+// with FAILED_PRECONDITION and names the leader in response metadata. See
+// the `redirect` module of the fl-proto crate for the metadata keys.
+
+syntax = "proto3";
+
+package ferrumlog.v1;
+
+import "ferrumlog/v1/types.proto";
+
+service Log {
+  // Creates a topic. Succeeds without change if the topic already exists.
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+  // Lists every topic.
+  rpc ListTopics(ListTopicsRequest) returns (ListTopicsResponse);
+  // Appends records to a topic. Returns once the records are committed,
+  // meaning a majority of nodes have them on disk.
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+  // Reads one batch of committed records starting at an offset.
+  rpc Fetch(FetchRequest) returns (FetchResponse);
+  // Streams committed records from a starting point and keeps the stream
+  // open, delivering new records as they commit.
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+}
+
+message CreateTopicRequest {
+  string name = 1;
+}
+
+message CreateTopicResponse {
+  uint32 topic_id = 1;
+  // False if the topic already existed.
+  bool created = 2;
+}
+
+message ListTopicsRequest {}
+
+message TopicInfo {
+  string name = 1;
+  uint32 topic_id = 2;
+  // Offset the next committed record will receive. Equal to the number of
+  // records in the topic.
+  uint64 high_watermark = 3;
+}
+
+message ListTopicsResponse {
+  repeated TopicInfo topics = 1;
+}
+
+message ProduceRequest {
+  string topic = 1;
+  // Committed as a unit and given consecutive offsets.
+  repeated Record records = 2;
+}
+
+message ProduceResponse {
+  // Offset of the first record in the request.
+  uint64 base_offset = 1;
+  // Number of records written.
+  uint32 count = 2;
+}
+
+// A record together with its position in the topic.
+message ConsumedRecord {
+  uint64 offset = 1;
+  Record record = 2;
+}
+
+message FetchRequest {
+  string topic = 1;
+  // Offset of the first record wanted.
+  uint64 offset = 2;
+  // Upper bound on records returned. Zero means the server default.
+  uint32 max_records = 3;
+  // Upper bound on record bytes returned. Zero means the server default.
+  // At least one record is returned if any exists at `offset`.
+  uint32 max_bytes = 4;
+}
+
+message FetchResponse {
+  // Empty if `offset` is at or past the high watermark.
+  repeated ConsumedRecord records = 1;
+  // Offset the next committed record will receive.
+  uint64 high_watermark = 2;
+}
+
+// Where a subscription starts when no explicit offset is given.
+enum StartPosition {
+  START_POSITION_UNSPECIFIED = 0;
+  // The first record in the topic.
+  START_POSITION_EARLIEST = 1;
+  // Only records committed after the subscription begins.
+  START_POSITION_LATEST = 2;
+}
+
+message SubscribeRequest {
+  string topic = 1;
+  // If neither is set the stream starts at the earliest record.
+  oneof start {
+    uint64 offset = 2;
+    StartPosition position = 3;
+  }
+}
+
+message SubscribeResponse {
+  // One or more records, in offset order with no gaps.
+  repeated ConsumedRecord records = 1;
+  // Offset the next committed record will receive, as of this message.
+  uint64 high_watermark = 2;
+}

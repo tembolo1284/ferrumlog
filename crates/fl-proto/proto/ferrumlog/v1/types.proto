@@ -1,0 +1,55 @@
+// Messages shared by the Raft, Log, and Admin services.
+
+syntax = "proto3";
+
+package ferrumlog.v1;
+
+// One message in a topic.
+message Record {
+  // Optional key. Opaque to the log.
+  optional bytes key = 1;
+  // The message body. Opaque to the log.
+  bytes value = 2;
+  // Producer timestamp in milliseconds since the Unix epoch. Zero means
+  // unset, and the leader stamps the record before proposing it.
+  uint64 timestamp_ms = 3;
+}
+
+// A group of records appended to one topic as a single log entry.
+message RecordBatch {
+  uint32 topic_id = 1;
+  repeated Record records = 2;
+}
+
+// The set of voting nodes in the cluster.
+message Membership {
+  repeated uint64 voters = 1;
+}
+
+// The term and index of one log entry. All zeros means "before the first
+// entry".
+message LogId {
+  uint64 term = 1;
+  uint64 index = 2;
+}
+
+// A command that does nothing when applied.
+message NoopCommand {}
+
+// A command that creates a topic.
+message CreateTopicCommand {
+  string name = 1;
+}
+
+// One entry in the replicated log.
+message Entry {
+  uint64 term = 1;
+  uint64 index = 2;
+  // Exactly one command must be set.
+  oneof command {
+    NoopCommand noop = 3;
+    RecordBatch append = 4;
+    CreateTopicCommand create_topic = 5;
+    Membership reconfigure = 6;
+  }
+}

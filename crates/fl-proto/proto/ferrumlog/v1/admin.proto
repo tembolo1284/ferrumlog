@@ -1,0 +1,50 @@
+// Operator-facing API for inspecting a node. Any node answers, leader or not.
+
+syntax = "proto3";
+
+package ferrumlog.v1;
+
+import "ferrumlog/v1/types.proto";
+
+service Admin {
+  // Reports this node's view of itself and the cluster.
+  rpc Status(StatusRequest) returns (StatusResponse);
+}
+
+// A node's role in the current term.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_FOLLOWER = 1;
+  ROLE_CANDIDATE = 2;
+  ROLE_LEADER = 3;
+}
+
+// A cluster member and the address clients reach it on.
+message Peer {
+  uint64 node_id = 1;
+  string addr = 2;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  uint64 node_id = 1;
+  Role role = 2;
+  uint64 term = 3;
+  // The leader this node currently follows. Unset during an election.
+  optional uint64 leader_id = 4;
+  // Index of the first entry this node still holds.
+  uint64 first_log_index = 5;
+  // Term and index of this node's last log entry.
+  LogId last_log = 6;
+  // Highest index known to be committed.
+  uint64 commit_index = 7;
+  // Highest index applied to the state machine.
+  uint64 applied_index = 8;
+  // The voting members as this node knows them.
+  repeated Peer voters = 9;
+  // Number of segment files on disk.
+  uint32 segment_count = 10;
+  // Total size of the segment files in bytes.
+  uint64 log_bytes = 11;
+}

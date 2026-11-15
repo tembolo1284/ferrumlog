@@ -11,6 +11,14 @@ repository = "https://github.com/tembolo1284/ferrumlog"
 [workspace.dependencies]
 fl-types = { path = "crates/fl-types" }
 fl-storage = { path = "crates/fl-storage" }
+fl-proto = { path = "crates/fl-proto" }
+fl-broker = { path = "crates/fl-broker" }
+
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tonic-prost-build = "0.14"
+protoc-bin-vendored = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
