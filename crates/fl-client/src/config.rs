@@ -41,7 +41,7 @@ impl ClientConfig {
             endpoints: endpoints.into_iter().map(Into::into).collect(),
             connect_timeout: Duration::from_secs(5),
             request_timeout: Duration::from_secs(10),
-            max_retries: 5,
+            max_retries: 8,
             backoff_base: Duration::from_millis(100),
             backoff_max: Duration::from_secs(2),
             retry_writes: false,

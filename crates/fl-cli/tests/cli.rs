@@ -46,6 +46,8 @@ async fn start_server(dir: &TempDir) -> Server {
         segment_bytes: 64 << 20,
         max_commit_batch: 256,
         unsafe_no_fsync: false,
+        peers: Vec::new(),
+        tick_ms: 20,
     };
     Server::start(config).await.unwrap()
 }
@@ -234,9 +236,10 @@ async fn status_shows_every_node() {
             "leader",
             "1",
             "1",
-            "2",
-            "2",
-            "2",
+            // The no-op from the node electing itself, plus two writes.
+            "3",
+            "3",
+            "3",
             "1"
         ]
     );

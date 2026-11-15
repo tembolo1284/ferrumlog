@@ -57,6 +57,8 @@ fn server_config(dir: &Path, listen: &str) -> Config {
         segment_bytes: 64 << 20,
         max_commit_batch: 256,
         unsafe_no_fsync: false,
+        peers: Vec::new(),
+        tick_ms: 20,
     }
 }
 
@@ -258,7 +260,8 @@ async fn round_trip_against_a_real_node() {
     assert_eq!(status.node_id, NodeId::new(1));
     assert_eq!(status.role, Role::Leader);
     assert_eq!(status.leader_id, Some(NodeId::new(1)));
-    assert_eq!(status.commit_index.get(), 3);
+    // One more than the writes, for the no-op from the node electing itself.
+    assert_eq!(status.commit_index.get(), 4);
     assert_eq!(status.endpoint, format!("http://{}", server.grpc_addr()));
     assert_eq!(status.voters.len(), 1);
 
@@ -318,10 +321,14 @@ async fn reads_fail_over_to_a_live_endpoint() {
 
 #[tokio::test]
 async fn ambiguous_writes_are_retried_only_when_asked() {
-    let dead = dead_addr().await.to_string();
+    // A node that accepts the request and then says nothing. The client
+    // times out and cannot know whether the write happened.
+    let (silent, calls) = start_scripted(None, Duration::from_secs(30)).await;
+    let mut config = fast([silent.to_string()]);
+    config.request_timeout = Duration::from_millis(150);
 
     // Default: one try, then the caller decides.
-    let client = Client::new(fast([dead.clone()])).unwrap();
+    let client = Client::new(config.clone()).unwrap();
     let error = soon(client.produce("quotes", records(&["a"])))
         .await
         .unwrap_err();
@@ -329,6 +336,7 @@ async fn ambiguous_writes_are_retried_only_when_asked() {
         matches!(error, Error::Unavailable { attempts: 1, .. }),
         "{error:?}"
     );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     // A call that is safe to repeat uses every retry.
     let error = soon(client.create_topic("quotes")).await.unwrap_err();
@@ -336,14 +344,8 @@ async fn ambiguous_writes_are_retried_only_when_asked() {
         matches!(error, Error::Unavailable { attempts: 4, .. }),
         "{error:?}"
     );
-    let error = soon(client.list_topics()).await.unwrap_err();
-    assert!(
-        matches!(error, Error::Unavailable { attempts: 4, .. }),
-        "{error:?}"
-    );
 
     // Opted in: writes use every retry as well.
-    let mut config = fast([dead]);
     config.retry_writes = true;
     let client = Client::new(config).unwrap();
     let error = soon(client.produce("quotes", records(&["a"])))
@@ -353,6 +355,37 @@ async fn ambiguous_writes_are_retried_only_when_asked() {
         matches!(error, Error::Unavailable { attempts: 4, .. }),
         "{error:?}"
     );
+}
+
+#[tokio::test]
+async fn a_refused_connection_is_safe_to_retry_even_for_a_write() {
+    let dir = TempDir::new("refused");
+    let server = start_server(&dir).await;
+    let live = server.grpc_addr().to_string();
+    let dead = dead_addr().await.to_string();
+
+    // The first endpoint is down. A refused connection means the write
+    // never left this machine, so the client moves on without being told
+    // that retrying writes is allowed.
+    let client = Client::new(fast([dead.clone(), live.clone()])).unwrap();
+    soon(client.create_topic("quotes")).await.unwrap();
+    let fresh = Client::new(fast([dead.clone(), live])).unwrap();
+    let produced = soon(fresh.produce("quotes", records(&["a"])))
+        .await
+        .unwrap();
+    assert_eq!(produced.base_offset, Offset::new(0));
+
+    // With nothing but dead endpoints it uses every retry and then
+    // reports the cluster as unreachable.
+    let alone = Client::new(fast([dead])).unwrap();
+    let error = soon(alone.produce("quotes", records(&["a"])))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::Unavailable { attempts: 4, .. }),
+        "{error:?}"
+    );
+    soon(server.stop()).await.unwrap();
 }
 
 #[tokio::test]
@@ -631,4 +664,72 @@ async fn subscription_reports_a_cluster_that_stays_down() {
     // The subscription is still usable and fails the same way again.
     let error = soon(subscription.next()).await.unwrap_err();
     assert!(matches!(error, Error::Unavailable { .. }), "{error:?}");
+}
+
+// ---- a real cluster ---------------------------------------------------------
+
+/// Reserves a loopback port by binding it and letting it go again.
+fn free_addr() -> SocketAddr {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_client_finds_the_leader_and_follows_a_failover() {
+    let dirs: Vec<TempDir> = (0..3).map(|_| TempDir::new("cluster")).collect();
+    let addrs: Vec<SocketAddr> = (0..3).map(|_| free_addr()).collect();
+    let peers: Vec<String> = addrs
+        .iter()
+        .enumerate()
+        .map(|(index, addr)| format!("{}={addr}", index + 1))
+        .collect();
+    let mut servers = Vec::new();
+    for node in 0..3 {
+        let mut config = server_config(dirs[node].path(), &addrs[node].to_string());
+        config.node_id = node as u64 + 1;
+        config.peers = peers.clone();
+        servers.push(Some(Server::start(config).await.unwrap()));
+    }
+
+    // The client is given all three nodes and is not told which one leads.
+    // Retrying writes stays off. Nothing here needs it: a refused
+    // connection and a redirect are both safe to follow.
+    let mut config = fast(addrs.iter().map(SocketAddr::to_string));
+    config.max_retries = 40;
+    let client = Client::new(config).unwrap();
+
+    soon(client.create_topic("quotes")).await.unwrap();
+    let first = soon(client.produce("quotes", records(&["a", "b"])))
+        .await
+        .unwrap();
+    assert_eq!(first.base_offset, Offset::new(0));
+
+    // Find the leader and stop it.
+    let mut leader = None;
+    for (node, addr) in addrs.iter().enumerate() {
+        let status = soon(client.status_of(&addr.to_string())).await.unwrap();
+        if status.role == Role::Leader {
+            leader = Some(node);
+        }
+    }
+    let leader = leader.expect("some node leads");
+    let stopped = servers[leader].take().unwrap();
+    soon(stopped.stop()).await.unwrap();
+
+    // The same client keeps working. It moves to another node, is
+    // redirected to the new leader, and the write lands after the old ones.
+    let second = soon(client.produce("quotes", records(&["c"])))
+        .await
+        .unwrap();
+    assert_eq!(second.base_offset, Offset::new(2));
+    let batch = soon(client.fetch("quotes", Offset::ZERO, FetchOptions::default()))
+        .await
+        .unwrap();
+    assert_eq!(summary(&batch.records), ["0=a", "1=b", "2=c"]);
+
+    let status = soon(client.status()).await.unwrap();
+    assert_ne!(status.leader_id, Some(NodeId::new(leader as u64 + 1)));
+    for server in servers.into_iter().flatten() {
+        soon(server.stop()).await.unwrap();
+    }
 }

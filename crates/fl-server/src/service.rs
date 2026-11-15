@@ -4,8 +4,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fl_broker::{FetchLimits, Fetched, FetchedRecord};
+use fl_net::PeerMap;
 use fl_proto::pb;
-use fl_types::{Offset, Record};
+use fl_raft::Role;
+use fl_types::{NodeId, Offset, Record};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
@@ -271,6 +273,8 @@ pub(crate) struct AdminService {
     pub node_id: u64,
     /// The address clients use to reach this node.
     pub advertise: String,
+    /// Every member of the cluster.
+    pub peers: Arc<PeerMap>,
 }
 
 #[tonic::async_trait]
@@ -279,24 +283,39 @@ impl fl_proto::Admin for AdminService {
         &self,
         _request: Request<pb::StatusRequest>,
     ) -> Result<Response<pb::StatusResponse>, Status> {
-        let log = self.engine.snapshot().await?;
-        // A standalone node is always its own leader, and everything on
-        // disk is committed.
+        let node = self.engine.snapshot().await?;
+        let role = match node.role {
+            Role::Follower => pb::Role::Follower,
+            Role::Candidate => pb::Role::Candidate,
+            Role::Leader => pb::Role::Leader,
+        };
+        let me = NodeId::new(self.node_id);
+        let voters = self
+            .peers
+            .iter()
+            .map(|(id, addr)| pb::Peer {
+                node_id: id.get(),
+                // This node reports the address it was told to advertise,
+                // which may differ from its entry in the peer list.
+                addr: if id == me {
+                    self.advertise.clone()
+                } else {
+                    addr.to_owned()
+                },
+            })
+            .collect();
         Ok(Response::new(pb::StatusResponse {
             node_id: self.node_id,
-            role: pb::Role::Leader as i32,
-            term: log.last.term.get().max(1),
-            leader_id: Some(self.node_id),
-            first_log_index: log.first_index.get(),
-            last_log: Some(log.last.into()),
-            commit_index: log.last.index.get(),
-            applied_index: log.applied.get(),
-            voters: vec![pb::Peer {
-                node_id: self.node_id,
-                addr: self.advertise.clone(),
-            }],
-            segment_count: u32::try_from(log.segments).unwrap_or(u32::MAX),
-            log_bytes: log.bytes,
+            role: role as i32,
+            term: node.term.get(),
+            leader_id: node.leader.map(NodeId::get),
+            first_log_index: node.first_index.get(),
+            last_log: Some(node.last.into()),
+            commit_index: node.commit.get(),
+            applied_index: node.applied.get(),
+            voters,
+            segment_count: u32::try_from(node.segments).unwrap_or(u32::MAX),
+            log_bytes: node.bytes,
         }))
     }
 }

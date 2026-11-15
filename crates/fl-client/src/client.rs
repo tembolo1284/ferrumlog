@@ -12,7 +12,7 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Status, Streaming};
 
 use crate::config::{normalize, ClientConfig};
-use crate::error::{is_transient, Error, Result};
+use crate::error::{is_transient, never_sent, Error, Result};
 use crate::subscribe::Subscription;
 use crate::types::{
     batch, Batch, FetchOptions, NodeStatus, Produced, StartAt, TopicCreated, TopicInfo,
@@ -266,6 +266,8 @@ impl Client {
     {
         let config = &self.inner.config;
         let mut attempts = 0u32;
+        // The node that most recently could not be reached at all.
+        let mut unreachable: Option<String> = None;
         loop {
             let (url, channel) = self.current();
             attempts += 1;
@@ -280,7 +282,13 @@ impl Client {
             if redirect::is_not_leader(&status) {
                 // The node did nothing with the request, so trying again
                 // elsewhere is always safe.
-                let leader = redirect::leader_hint(&status).and_then(|hint| hint.addr);
+                // Right after a leader dies, the other nodes still name it
+                // until they elect a new one. Going back to a node that
+                // was just unreachable would only burn retries, so such a
+                // hint is treated like no hint at all.
+                let leader = redirect::leader_hint(&status)
+                    .and_then(|hint| hint.addr)
+                    .filter(|addr| !same_node(addr, unreachable.as_deref()));
                 match leader {
                     Some(addr) if self.prefer(&addr) => wait = Duration::ZERO,
                     // No leader known yet, which happens mid-election, or
@@ -288,8 +296,13 @@ impl Client {
                     _ => self.rotate(&url),
                 }
             } else if is_transient(status.code()) {
+                unreachable = Some(url.clone());
                 self.rotate(&url);
-                if repeat == Repeat::Unsafe && !config.retry_writes {
+                // A write whose outcome is unknown is not sent twice
+                // unless the caller asked for that. A refused connection
+                // is not such a case: the write never left this machine.
+                let ambiguous = !never_sent(&status);
+                if repeat == Repeat::Unsafe && ambiguous && !config.retry_writes {
                     return Err(Error::Unavailable { attempts, status });
                 }
             } else {
@@ -363,6 +376,18 @@ fn open_channel(config: &ClientConfig, url: &str) -> Result<Channel> {
         .connect_lazy())
 }
 
+/// True if `addr` names the node at `url`. A hint carries a bare
+/// `host:port` and the node list holds URLs.
+fn same_node(addr: &str, url: Option<&str>) -> bool {
+    let bare = |text: &str| {
+        text.split_once("://")
+            .map_or(text, |(_, rest)| rest)
+            .trim_end_matches('/')
+            .to_owned()
+    };
+    url.is_some_and(|url| bare(url) == bare(addr))
+}
+
 fn timed_out(url: &str, timeout: Duration) -> Status {
     Status::deadline_exceeded(format!("no reply from {url} within {timeout:?}"))
 }
@@ -370,6 +395,17 @@ fn timed_out(url: &str, timeout: Duration) -> Status {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hint_is_matched_to_a_node_url() {
+        assert!(same_node("10.0.0.1:7001", Some("http://10.0.0.1:7001")));
+        assert!(same_node(
+            "http://10.0.0.1:7001/",
+            Some("http://10.0.0.1:7001")
+        ));
+        assert!(!same_node("10.0.0.2:7001", Some("http://10.0.0.1:7001")));
+        assert!(!same_node("10.0.0.1:7001", None));
+    }
 
     fn client(endpoints: &[&str]) -> Client {
         Client::new(ClientConfig::new(endpoints.iter().copied())).unwrap()

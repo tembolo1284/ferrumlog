@@ -106,6 +106,28 @@ pub(crate) fn is_transient(code: Code) -> bool {
     )
 }
 
+/// True if the request provably never reached a node, because the
+/// connection was refused.
+///
+/// Nothing can have happened on the other side, so sending the request
+/// again elsewhere is safe even for a write. Without this, a client whose
+/// first endpoint is down could never write at all. Other failures, such
+/// as a timeout or a connection that broke part way, say nothing about
+/// whether the node acted on the request.
+pub(crate) fn never_sent(status: &tonic::Status) -> bool {
+    let mut source = std::error::Error::source(status);
+    while let Some(error) = source {
+        let refused = error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::ConnectionRefused);
+        if refused {
+            return true;
+        }
+        source = error.source();
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -51,6 +51,8 @@ fn config(dir: &Path) -> Config {
         segment_bytes: 64 << 20,
         max_commit_batch: 256,
         unsafe_no_fsync: false,
+        peers: Vec::new(),
+        tick_ms: 20,
     }
 }
 
@@ -386,7 +388,8 @@ async fn data_survives_a_restart() {
     assert_eq!(produced.base_offset, 2);
     // The gauges were filled in from the recovered log.
     assert_eq!(server.metrics().topics.get(), 2);
-    assert_eq!(server.metrics().log_last_index.get(), 5);
+    // Five writes, and one no-op for each time the node elected itself.
+    assert_eq!(server.metrics().log_last_index.get(), 7);
 
     soon(server.stop()).await.unwrap();
 }
@@ -468,9 +471,10 @@ async fn admin_status_and_http_endpoints() {
     assert_eq!(status.leader_id, Some(1));
     assert_eq!(status.term, 1);
     assert_eq!(status.first_log_index, 1);
-    assert_eq!(status.last_log, Some(pb::LogId { term: 1, index: 2 }));
-    assert_eq!(status.commit_index, 2);
-    assert_eq!(status.applied_index, 2);
+    // The no-op from the node electing itself, the topic, and the batch.
+    assert_eq!(status.last_log, Some(pb::LogId { term: 1, index: 3 }));
+    assert_eq!(status.commit_index, 3);
+    assert_eq!(status.applied_index, 3);
     assert_eq!(status.segment_count, 1);
     assert!(status.log_bytes > 16);
     assert_eq!(status.voters.len(), 1);
@@ -486,8 +490,11 @@ async fn admin_status_and_http_endpoints() {
     assert!(body.contains("ferrumlog_produce_requests_total{result=\"ok\"} 1\n"));
     assert!(body.contains("ferrumlog_records_produced_total 2\n"));
     assert!(body.contains("ferrumlog_topics 1\n"));
-    assert!(body.contains("ferrumlog_log_last_index 2\n"));
-    assert!(body.contains("ferrumlog_commit_duration_seconds_count 2\n"));
+    assert!(body.contains("ferrumlog_log_last_index 3\n"));
+    assert!(body.contains("ferrumlog_commit_duration_seconds_count 3\n"));
+    assert!(body.contains("ferrumlog_raft_leader 1\n"));
+    assert!(body.contains("ferrumlog_raft_term 1\n"));
+    assert!(body.contains("ferrumlog_commit_index 3\n"));
 
     let (line, _) = http_get(http, "/nope").await;
     assert!(line.contains("404"), "{line}");
@@ -513,8 +520,8 @@ async fn metrics_server_can_be_disabled() {
         .unwrap()
         .into_inner();
     assert_eq!(status.voters[0].addr, "node1.example:7001");
-    // An empty log reports the zero id and still names a term.
-    assert_eq!(status.last_log, Some(pb::LogId { term: 0, index: 0 }));
+    // A fresh node has elected itself, so its log holds one no-op.
+    assert_eq!(status.last_log, Some(pb::LogId { term: 1, index: 1 }));
     assert_eq!(status.term, 1);
 
     soon(server.stop()).await.unwrap();
