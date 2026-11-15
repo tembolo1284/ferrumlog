@@ -48,6 +48,7 @@ mod fsutil;
 mod index;
 mod log;
 mod meta;
+mod sealed;
 mod segment;
 
 #[cfg(test)]
@@ -57,3 +58,4 @@ pub use crc::crc32c;
 pub use error::{Error, Result};
 pub use log::{Log, LogConfig, RecoveryReport, SyncPolicy};
 pub use meta::{HardState, HardStateStore};
+pub use sealed::{sealed_segments, segment_file_names, SealedSegment};

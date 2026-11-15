@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch or pull request cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on any compiler warning, not only clippy's.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build output
+        uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      # The S3 backend is behind a feature, so the steps above never
+      # compile it. This keeps it from rotting.
+      - name: S3 backend compiles
+        run: cargo clippy -p fl-tier --features s3 --all-targets --locked -- -D warnings
+
+  docker:
+    name: image builds and runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -f deploy/docker/Dockerfile -t ferrumlog:ci .
+
+      - name: Start a node
+        run: docker run -d --name node ferrumlog:ci
+
+      - name: Wait until it is healthy
+        run: |
+          for attempt in $(seq 1 30); do
+            state="$(docker inspect --format '{{.State.Health.Status}}' node)"
+            if [ "$state" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the node never became healthy" >&2
+          docker logs node >&2
+          exit 1
+
+      - name: Write and read through the CLI
+        run: |
+          docker exec node fl create-topic ci
+          docker exec node fl produce ci one two three
+          test "$(docker exec node fl consume ci | wc -l)" -eq 3
+          docker exec node fl status
+
+      - name: Stop cleanly
+        run: |
+          docker stop -t 20 node
+          test "$(docker inspect --format '{{.State.ExitCode}}' node)" -eq 0
+          docker logs node

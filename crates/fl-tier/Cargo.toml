@@ -1,0 +1,31 @@
+[package]
+name = "fl-tier"
+description = "Archives ferrumlog's sealed log segments to object storage, and restores a node from the archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fl-tier"
+path = "src/main.rs"
+
+[features]
+# Adds the s3:// backend. Off by default, because the AWS SDK is a large
+# dependency that most builds of the workspace do not need.
+s3 = ["dep:aws-config", "dep:aws-sdk-s3"]
+
+[dependencies]
+fl-types = { workspace = true }
+fl-storage = { workspace = true }
+fl-client = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+aws-config = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", optional = true }
+
+[dev-dependencies]
+fl-server = { workspace = true }
