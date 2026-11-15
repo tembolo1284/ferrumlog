@@ -1,0 +1,12 @@
+[package]
+name = "fl-types"
+description = "Core identifiers, records, log entries, and membership types for ferrumlog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
